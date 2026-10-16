@@ -125,3 +125,5 @@ summary['Difference'] = summary['2025'] - summary['1925']
 print('\nSummary of daily mean temperature at Ås (°C)')
 print(summary.round(1))
 
+# ---------- Task 4: Heatwaves ---------
+    
