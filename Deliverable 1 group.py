@@ -9,7 +9,7 @@ from pathlib import Path
 # Read client ID from file
 client_id = (Path(__file__).parent / "frost_id.txt").read_text().strip()
 
-# Define endpoint and parameters (temperature + precipitation in one request)
+# Defining endpoint and parameters 
 endpoint = 'https://frost.met.no/observations/v0.jsonld'
 parameters = {
     'sources': 'SN17850',
@@ -28,7 +28,7 @@ else:
     print('Reason: %s' % json['error']['reason'])
     raise SystemExit
 
-# Build DataFrame (pd.concat replaces df.append, which no longer exists in pandas)
+# Building DataFrame
 rows = []
 for obs in data:
     row = pd.DataFrame(obs['observations'])
@@ -38,14 +38,14 @@ df = pd.concat(rows, ignore_index=True)
 df['referenceTime'] = pd.to_datetime(df['referenceTime'])
 
 # Keep one timeOffset per element, then one column per element
-mest_vanlig = df.groupby('elementId')['timeOffset'].transform(lambda s: s.mode()[0])
-df = df[df['timeOffset'] == mest_vanlig]
+most_common = df.groupby('elementId')['timeOffset'].transform(lambda s: s.mode()[0])
+df = df[df['timeOffset'] == most_common]
 df['date'] = df['referenceTime'].dt.normalize()
 wide = df.pivot_table(index='date', columns='elementId', values='value')
 wide.columns = ['precipitation', 'temperature'] if wide.columns[0].startswith('sum') \
     else ['temperature', 'precipitation']
 
-# ---------- Task 1: Temperature plot + summary ----------
+# Task 1: Temperature plot + summary
 fig, ax = plt.subplots(figsize=(12, 5))
 ax.plot(wide.index, wide['temperature'], color='tab:red')
 ax.axhline(0, color='grey', linewidth=0.8, linestyle='--')
@@ -59,7 +59,7 @@ summary = wide['temperature'].agg(['mean', 'median', 'min', 'max']).round(1)
 print('\nSummary of daily mean temperature at Ås, 2025')
 print(summary.to_frame('Temperature (°C)'))
 
-# ---------- Task 2: Temperature + precipitation ----------
+# Task 2: Temperature + precipitation
 fig, ax1 = plt.subplots(figsize=(12, 5))
 ax2 = ax1.twinx()
 ax2.bar(wide.index, wide['precipitation'], width=1, color='tab:blue', alpha=0.5, label='Precipitation (mm)')
@@ -77,9 +77,9 @@ plt.show()
 
 print('\nTotal precipitation 2025: %.1f mm' % wide['precipitation'].sum())
 
-# ---------- Task 3: Compare with 100 years earlier ----------
-def hent_element(year, element='mean(air_temperature P1D)', source='SN17850'):
-    """Henter ett element for ett år fra Frost og returnerer en Series med dato som indeks."""
+# Task 3: Compare with 100 years earlier
+def get_element(year, element='mean(air_temperature P1D)', source='SN17850'):
+    """Gets one element for a year from Frost and returns a Series with date as index."""
     params = {'sources': source, 'elements': element,'referencetime': f'{year}-01-01/{year + 1}-01-01'}
     r = requests.get(endpoint, params, auth=(client_id, ''))
     json = r.json()
@@ -98,7 +98,7 @@ def hent_element(year, element='mean(air_temperature P1D)', source='SN17850'):
     return df.set_index('date')['value']
 
 t2025 = wide['temperature']
-t1925 = hent_element(1925)
+t1925 = get_element(1925)
 
 # Moving 1925 dates 100 years forward so both years lie on the same x-axis
 t1925_plot = t1925.copy()
@@ -121,7 +121,7 @@ summary['Difference'] = summary['2025'] - summary['1925']
 print('\nSummary of daily mean temperature at Ås (°C)')
 print(summary.round(1))
 
-# ---------- Task 4: Heatwaves ----------
+# Task 4: Heatwaves
 def get_station(station):
     """Return (station_id, station_name) from an ID like 'SN17850' or a name like 'Ås'."""
     if station.upper().startswith('SN') and station[2:].isdigit():
@@ -135,7 +135,7 @@ def get_station(station):
     return source['id'], source['name'].title()
 
 def find_heatwaves(tmax, threshold=27, min_days=5):
-    """Finner hetebølger (minst min_days dager på rad >= threshold)."""
+    """Finds heatwaves (at least min_days consecutive days >= threshold)."""
     hot = tmax[~tmax.index.duplicated('first')].reindex(pd.date_range(tmax.index.min(), tmax.index.max(), freq='D')) >= threshold
     heatwaves = []
     for _, run in hot.groupby((hot != hot.shift()).cumsum()):
@@ -155,7 +155,7 @@ def find_heatwaves(tmax, threshold=27, min_days=5):
 def count_heatwaves(station, year, outfile='heatwaves.yml'):
     """Count heatwaves for a station (ID or name) and year, and save the dates to a yml file."""
     station_id, station_name = get_station(station)
-    tmax = hent_element(year, 'max(air_temperature P1D)', station_id)
+    tmax = get_element(year, 'max(air_temperature P1D)', station_id)
     heatwaves = find_heatwaves(tmax)
 
     summary = {
@@ -170,7 +170,7 @@ def count_heatwaves(station, year, outfile='heatwaves.yml'):
 
 print('Heatwaves at Ås in 2025:', count_heatwaves('SN17850', 2025))
 
-# ---------- Task 5: 7-day moving average ----------
+# Task 5: 7-day moving average
 def moving_average(series, window=7):
     """Centered moving average. Missing days are kept as NaN, so the window always
     covers real calendar days (the first and last 3 days are NaN for window=7)."""
