@@ -1,5 +1,6 @@
 # Libraries needed
 import requests
+import yaml
 import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
@@ -103,7 +104,7 @@ def hent_element(year, element='mean(air_temperature P1D)', source='SN17850'):
 t2025 = wide['temperature']
 t1925 = hent_element(1925)
 
-# Flytt 1925-datoene 100 år frem så begge årene ligger på samme x-akse
+# Moving 1925 dates 100 years forward so both years lie on the same x-axis
 t1925_plot = t1925.copy()
 t1925_plot.index = t1925_plot.index + pd.DateOffset(years=100)
 
@@ -126,4 +127,59 @@ print('\nSummary of daily mean temperature at Ås (°C)')
 print(summary.round(1))
 
 # ---------- Task 4: Heatwaves ---------
+def get_station_id(station):
+    """Returnerer stasjons-ID basert på navn eller ID."""
+    if station.upper().startswith('SN') and station[2:].isdigit():
+        return station.upper()
+    r = requests.get('https://frost.met.no/sources/v0.jsonld', {'name': station}, auth=(client_id, ''))
+    if r.status_code == 200 and r.json().get('data'):
+        return r.json()['data'][0]['id']
+    raise RuntimeError(f'Fant ikke stasjon: {station}')
+
+def find_heatwaves(tmax, threshold=27, min_days=5):
+    """Finner hetebølger (minst min_days dager på rad >= threshold)."""
+    hot = tmax[~tmax.index.duplicated('first')].reindex(
+        pd.date_range(tmax.index.min(), tmax.index.max(), freq='D')
+    ) >= threshold
+
+    return [{
+        'start': run.index[0].strftime('%Y-%m-%d'),
+        'end': run.index[-1].strftime('%Y-%m-%d'),
+        'days': len(run),
+        'max_temperature': float(tmax[run.index[0]:run.index[-1]].max())
+    } for _, run in hot.groupby((hot != hot.shift()).cumsum()) if run.iloc[0] and len(run) >= min_days]
+
+def count_heatwaves(station, year, outfile='heatwaves.yml'):
+    """Teller hetebølger for stasjon/år og lagrer til YML."""
+    sid = get_station_id(station)
+    tmax = hent_element(year, 'max(air_temperature P1D)', sid)
+    hw = find_heatwaves(tmax)
     
+    summary = {'station': sid, 'year': year, 'number_of_heatwaves': len(hw), 'heatwaves': hw}
+    with open(outfile, 'w', encoding='utf-8') as f:
+        yaml.safe_dump(summary, f, sort_keys=False, allow_unicode=True)
+    return len(hw)
+
+print('Heatwaves at Ås in 2025:', count_heatwaves('SN17850', 2025))
+
+# ---------- Task 5: 7-day moving average ----------
+def moving_average(series, window=7):
+    """Centered moving average. Missing days are kept as NaN, so the window always
+    covers real calendar days (the first and last 3 days are NaN for window=7)."""
+    return series.asfreq('D').rolling(window=window, center=True, min_periods=window).mean()
+
+
+avg7 = moving_average(t2025)
+
+fig, ax = plt.subplots(figsize=(12, 5))
+ax.scatter(t2025.index, t2025, s=12, color='tab:blue', alpha=0.5,
+           label='Daily mean temperature')
+ax.plot(avg7.index, avg7, color='tab:red', linewidth=2, label='7-day moving average')
+ax.axhline(0, color='grey', linewidth=0.8, linestyle='--')
+ax.set(title='Daily mean temperature and 7-day moving average at Ås (SN17850), 2025',
+       xlabel='Date', ylabel='Temperature (°C)')
+ax.xaxis.set_major_formatter(mdates.DateFormatter('%b'))
+ax.grid(alpha=0.3)
+ax.legend()
+plt.tight_layout()
+plt.show()
